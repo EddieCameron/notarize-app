@@ -1,0 +1,267 @@
+#!/usr/bin/env bash -ex
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+sentinel_file="$SCRIPT_DIR/.this-is-the-repo"
+if [[ -f "$sentinel_file" ]]; then
+	# We're running from inside a repo
+	SUPPORT_DIR="$SCRIPT_DIR/support"
+	LIB_DIR="$SCRIPT_DIR/lib"
+else
+	# We're running inside an installed location
+	bin_dir="$SCRIPT_DIR"
+	prefix_dir=$(dirname "$bin_dir")
+	SUPPORT_DIR="$prefix_dir/share/notarize-app/support"
+	LIB_DIR="$prefix_dir/lib/notarize-app"
+fi
+
+# CONFIG
+CONFIG_FILE="${HOME}/.notarize-app.conf"
+DEFAULT_CONFIG="${SUPPORT_DIR}/.notarize-app.conf.defaults"
+
+# https://stackoverflow.com/a/2464883
+# Usage: config_set key value
+function config_set() {
+  local file=${CONFIG_FILE}
+  local key=$1
+  local val=${@:2}
+
+  ensureConfigFileExists "${file}"
+  chc "$file" "$key" "$val"
+}
+
+function ensureConfigFileExists() {
+  if [ ! -e "$1" ] ; then
+    if [ -e "$DEFAULT_CONFIG" ]; then
+      cp "$DEFAULT_CONFIG" "$1";
+    else
+      touch "$1"
+    fi
+  fi
+}
+
+# thanks to ixz in #bash on irc.freenode.net
+function chc() {
+	sed -i "" "/${2}=/d" "${1}"
+	printf "\n${2}=${3}"  >> "${1}"
+}
+
+# https://unix.stackexchange.com/a/331965/312709
+# Usage: local myvar="$(config_get myvar)"
+function config_get() {
+    val="$(config_read_file ${CONFIG_FILE} "${1}")";
+    if [ "${val}" = "__UNDEFINED__" ]; then
+        val="$(config_read_file ${DEFAULT_CONFIG} "${1}")";
+    fi
+    printf -- "%s" "${val}";
+}
+function config_read_file() {
+    (grep -E "^${2}=" -m 1 "${1}" 2>/dev/null || echo "VAR=__UNDEFINED__") | head -n 1 | cut -d '=' -f 2-;
+}
+
+function usage() {
+	cat <<EOHELP
+Creates, signs, and notarizes a .app into a DMG
+Usage:  $(basename $0) [options] <src folder to make into dmg (containing .app & any other files)>
+
+Options:
+== Apple Notarization Credientials ==
+  --cert <certificate name>
+      name of Developer ID certificate eg: "Developer ID Application: My Name (CODECODE)"  (required)
+  --username <username>
+      username on apple developer account (email)  (required)
+  --pwd <pwd>
+      one-time password generated from appleid site (xxxx-yyyy-zzzz)  (required)
+  --provider <provider_shortname>
+       the provider short-name on your apple account. Often, but not always, the same as your team id  (required)
+
+== Notarization Options ==
+  --entitlements <file.entitlements>
+      path to non-default entitlements file
+  --replace-mono-lib <path_to_lib_folder>
+		provide a patched mono framework for Unity 5 (replaces MonoEmbedRuntime under .app/Contents/Frameworks)
+
+== DMG Packaging ==
+If none of these options are set, a DMG will not be made, and only the .app will be signed
+  --make-dmg
+	  add this flag to make a dmg package with default options
+  --dmg-name <name (without .dmg)>
+		name of the dmg package. Defaults to the same filename as the .app
+  --window <x> <y>
+      size of the DMG window
+  --background <file_name> 
+      image file to use as background of DMG window
+  --icon-position <x> <y>
+    position of app icon in DMG window
+  --app-drop-link <x> <y>
+      make a drop link to Applications, at location x,y
+
+  -h, --help
+	    display this help screen
+
+==============
+
+EOHELP
+	exit 0
+}
+
+# defaults
+DEVELOPER_ID="$(config_get DEVELOPER_ID)"
+APPLE_USERNAME="$(config_get APPLE_USERNAME)"
+APPLE_PWD="$(config_get APPLE_PWD)"
+APPLE_PROVIDER_SHORTNAME="$(config_get APPLE_PROVIDER_SHORTNAME)"
+
+DMG_SIZE_X="$(config_get DMG_SIZE_X)"
+DMG_SIZE_Y="$(config_get DMG_SIZE_Y)"
+DMG_ICON_X="$(config_get DMG_ICON_X)"
+DMG_ICON_Y="$(config_get DMG_ICON_Y)"
+DMG_APPICON_X="$(config_get DMG_APPICON_X)"
+DMG_APPICON_Y="$(config_get DMG_APPICON_Y)"
+APPLICATION_LINK="$(config_get DMG_APPICON_X)"
+
+ENTITLEMENTS_FILE="${SUPPORT_DIR}/entitlements.entitlements"
+DMG_BACKGROUND_IMG="${SUPPORT_DIR}/dmg_background_template.png"
+
+# Argument parsing
+while [[ "${1:0:1}" = "-" ]]; do
+	case $1 in
+		--cert)
+			DEVELOPER_ID="$2"
+			config_set DEVELOPER_ID ${DEVELOPER_ID}
+			shift; shift;;
+		--username)
+			APPLE_USERNAME="$2"
+			config_set APPLE_USERNAME ${APPLE_USERNAME}
+			shift; shift;;
+		--pwd)
+			APPLE_PWD="$2"
+			config_set APPLE_PWD ${APPLE_PWD}
+			shift; shift;;
+		--provider)
+			APPLE_PROVIDER_SHORTNAME="$2"
+			config_set APPLE_PROVIDER_SHORTNAME ${APPLE_PROVIDER_SHORTNAME}
+			shift; shift;;
+		--entitlements)
+			ENTITLEMENTS_FILE="$2"
+			shift; shift;;
+		--replace-mono-lib)
+			REPLACE_MONO_LIB_PATH="$2"
+			shift; shift;;
+		--make-dmg)
+			MAKE_DMG=YES
+			shift;;
+		--dmg-name)
+			MAKE_DMG=YES
+			DMG_NAME=$2
+			shift; shift;;
+		--window)
+			MAKE_DMG=YES
+			DMG_SIZE_X=$2; DMG_SIZE_Y=$3
+			config_set DMG_SIZE_X ${DMG_SIZE_X}
+			config_set DMG_SIZE_Y ${DMG_SIZE_Y}
+			shift; shift; shift;;
+		--background)
+			MAKE_DMG=YES
+			DMG_BACKGROUND_IMG="$2"
+			shift; shift;;
+		--icon-position)
+			MAKE_DMG=YES
+			DMG_ICON_X=$2; DMG_ICON_Y=$3
+			config_set DMG_ICON_X ${DMG_ICON_X}
+			config_set DMG_ICON_Y ${DMG_ICON_Y}
+			shift; shift; shift;;
+		--app-drop-link)
+			MAKE_DMG=YES
+			APPLICATION_LINK=$2
+			DMG_APPICON_X=$2; DMG_APPICON_Y=$3
+			config_set DMG_APPICON_X ${DMG_APPICON_X}
+			config_set DMG_APPICON_Y ${DMG_APPICON_Y}
+			shift; shift; shift;;
+
+		-h | --help)
+			usage;;
+		-*)
+			echo "Unknown option: $1. Run 'make_osx_build --help' for help."
+			exit 1;;
+	esac
+done
+
+if [[ -z "$1" ]]; then
+	SRC_FOLDER="."
+else
+	SRC_FOLDER="$1"
+fi
+
+APP_BUNDLE="$(find "${SRC_FOLDER}" -type d -name '*.app' -maxdepth 1)"
+
+if [ -z ${DMG_NAME+x} ]; then
+	filename=$(basename -- "$APP_BUNDLE")
+	DMG_NAME="${filename%.*}"
+fi
+
+BUNDLE_ID=$(defaults read "$(pwd)/${APP_BUNDLE}/Contents/Info" CFBundleIdentifier)
+
+# fix permissions
+chmod -R a+xr "$APP_BUNDLE"
+
+if [[ -n "$REPLACE_MONO_LIB_PATH" ]]; then
+	# replace mono framework
+	FRAMEWORKS_PATH="$APP_BUNDLE/Contents/Frameworks/MonoEmbedRuntime"
+	rm -rf "$FRAMEWORKS_PATH"
+	cp -R "$REPLACE_MONO_LIB_PATH" "$FRAMEWORKS_PATH"
+fi
+
+# Remove any weird finder metadata that crept in
+xattr -cr "$APP_BUNDLE"
+
+# delete unity's meta files from the plugin bundles before signing
+PLUGINS_PATH="$APP_BUNDLE/Contents/Plugins/"
+if [ -d "${PLUGINS_PATH}" ]; then
+	find "$PLUGINS_PATH" -type f -name '*.meta' -delete
+
+	# sign plugins
+	for d in "${PLUGINS_PATH}"*/ ; do (codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" "$d"); done
+fi
+
+#sign app bundle
+codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" "$APP_BUNDLE"
+
+if [[ -n "${MAKE_DMG}" ]]; then
+	# Create the DMG
+	rm -f "${DMG_NAME}.dmg"
+	APP_FILE=$(basename "$APP_BUNDLE")
+
+	args=()
+	args+=( --volname "$DMG_NAME" )
+	args+=( --window-size $DMG_SIZE_X $DMG_SIZE_Y )
+	args+=( --icon "$APP_FILE" $DMG_ICON_X $DMG_ICON_Y )
+	args+=( --hide-extension "$APP_FILE" )
+	args+=( --hdiutil-verbose )
+
+	[[ -n "$DMG_BACKGROUND_IMG" ]] && args+=( --background "$DMG_BACKGROUND_IMG" )
+	[[ -n "$APPLICATION_LINK" ]] && args+=( --app-drop-link $DMG_APPICON_X $DMG_APPICON_Y )
+
+	args+=( "${DMG_NAME}.dmg" )
+	args+=( "$SRC_FOLDER" )
+
+	${LIB_DIR}/create-dmg/create-dmg "${args[@]}" 
+
+	#sign dmg
+	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
+
+	#upload
+	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${DMG_NAME}.dmg"
+
+	echo Uploaded...once approved, make sure to staple the notorization to the app with xcrun stapler staple \"${DMG_NAME}.dmg\"
+else
+	# create temp zip for uploading
+	temp_file="/tmp/${DMG_NAME}.zip"
+	touch "${temp_file}"
+	zip -r - "${APP_BUNDLE}" >"${temp_file}"
+	
+	#upload
+	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${temp_file}"
+	rm "${temp_file}"
+
+	echo Uploaded...once approved, make sure to staple the notorization to the app with xcrun stapler staple \"${APP_BUNDLE}\"
+fi
