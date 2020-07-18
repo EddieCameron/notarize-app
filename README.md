@@ -4,7 +4,9 @@ Notarizes OSX apps built outside of Xcode, and optionally packages them into .dm
 ## About
 This tool was made to make notarizing Unity3D .apps easier. It should still work with other .apps, and I'll try fixing errors to keep it general, but Unity games are what I test it on.
 You do need a Mac running a recent version of Xcode, and an up to date, paid, Apple developer account. Please direct complaints to Apple, there's no reason this shouldn't be possible on older Macs and without paying Apple.
-Big thanks to the maintainers of [create-dmg](https://github.com/create-dmg/create-dmg/blob/master/README.md), and to @dpid for this great gist guide to notarizing Unity builds (the manual way) https://gist.github.com/dpid/270bdb6c1011fe07211edf431b2d0fe4
+
+Big thanks to the maintainers of [create-dmg](https://github.com/create-dmg/create-dmg/blob/master/README.md), and to @dpid for [this](https://gist.github.com/dpid/270bdb6c1011fe07211edf431b2d0fe4) great gist guide to notarizing Unity builds (the manual way)
+
 If you run into trouble, read that guide (and maybe the comments) in detail, a lot of common issues are discussed.
 
 ## Install
