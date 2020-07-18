@@ -8,6 +8,10 @@ Big thanks to the maintainers of [create-dmg](https://github.com/create-dmg/crea
 If you run into trouble, read that guide (and maybe the comments) in detail, a lot of common issues are discussed.
 
 ## Install
+- Install with [Homebrew](https://brew.sh/):
+```sh
+brew install eddiecameron/things/notarize-app
+```
 
 - Download or clone repo, then run:
 ```sh
@@ -17,7 +21,10 @@ make install
 ## How 2 Use
 ```sh
 notarize-app [options] <folder containing .app, or blank to use current directory>
+*wait for apple to approve your notarization*
+xcrun stapler staple <your signed .app or .dmg>
 ```
+**NOTE:** This tool does not do the final step of "stapling" the notarization to the .app/.dmg. You need to wait for an approval email from Apple, which can take up to an hour, then run `xcrun stapler staple "test.app/test.dmg"` (Instructions are given after a successful notarization submission)
 
 By default, notarize-app looks for a .app in the given folder, signs it, along with any libraries inside it, then notarizes it and uploads to Apple.
 Optionally, it can also package the .app along with any other files in the same folder into a .dmg.

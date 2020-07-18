@@ -200,12 +200,11 @@ if [ -z ${DMG_NAME+x} ]; then
 fi
 
 BUNDLE_ID=$(defaults read "$(pwd)/${APP_BUNDLE}/Contents/Info" CFBundleIdentifier)
-
-# fix permissions
-chmod -R a+xr "$APP_BUNDLE"
+echo -e "🔏 Notarizing \033[1m\"${APP_BUNDLE}\": ${BUNDLE_ID}\033[0m"
 
 if [[ -n "$REPLACE_MONO_LIB_PATH" ]]; then
 	# replace mono framework
+	echo -e "🔏 Replacing Mono framework in bundle with ${REPLACE_MONO_LIB_PATH}"
 	FRAMEWORKS_PATH="$APP_BUNDLE/Contents/Frameworks/MonoEmbedRuntime"
 	rm -rf "$FRAMEWORKS_PATH"
 	cp -R "$REPLACE_MONO_LIB_PATH" "$FRAMEWORKS_PATH"
@@ -217,6 +216,7 @@ xattr -cr "$APP_BUNDLE"
 # delete unity's meta files from the plugin bundles before signing
 PLUGINS_PATH="$APP_BUNDLE/Contents/Plugins/"
 if [ -d "${PLUGINS_PATH}" ]; then
+	echo -e "🔏 Deleting Unity3D .meta files and signing native plugins"
 	find "$PLUGINS_PATH" -type f -name '*.meta' -delete
 
 	# sign plugins
@@ -224,10 +224,12 @@ if [ -d "${PLUGINS_PATH}" ]; then
 fi
 
 #sign app bundle
+echo -e "🔏 Signing .app"
 codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" "$APP_BUNDLE"
 
 if [[ -n "${MAKE_DMG}" ]]; then
 	# Create the DMG
+	echo -e "🔏 Creating ${DMG_NAME}.dmg... (your Finder window may open and move around)"
 	rm -f "${DMG_NAME}.dmg"
 	APP_FILE=$(basename "$APP_BUNDLE")
 
@@ -236,7 +238,6 @@ if [[ -n "${MAKE_DMG}" ]]; then
 	args+=( --window-size $DMG_SIZE_X $DMG_SIZE_Y )
 	args+=( --icon "$APP_FILE" $DMG_ICON_X $DMG_ICON_Y )
 	args+=( --hide-extension "$APP_FILE" )
-	args+=( --hdiutil-verbose )
 
 	[[ -n "$DMG_BACKGROUND_IMG" ]] && args+=( --background "$DMG_BACKGROUND_IMG" )
 	[[ -n "$APPLICATION_LINK" ]] && args+=( --app-drop-link $DMG_APPICON_X $DMG_APPICON_Y )
@@ -255,21 +256,29 @@ if [[ -n "${MAKE_DMG}" ]]; then
 	${CREATE_DMG} "${args[@]}" 
 
 	#sign dmg
+	echo -e "🔏 Signing ${DMG_NAME}.dmg"
 	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
 
 	#upload
+	echo -e "🔏 Uploading signed ${DMG_NAME}.dmg to Apple for notarization..."
 	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${DMG_NAME}.dmg"
-
-	echo Uploaded...once approved, make sure to staple the notorization to the app with xcrun stapler staple \"${DMG_NAME}.dmg\"
+	echo -e "...uploaded"
+	printf '%s\n' --------------------
+	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with \033[1mxcrun stapler staple \"${DMG_NAME}.dmg\"\033[0m 🔏"
+	printf '%s\n' --------------------
 else
 	# create temp zip for uploading
+	echo -e "Zipping .app for upload"
 	temp_file="/tmp/${DMG_NAME}.zip"
 	touch "${temp_file}"
-	zip -r - "${APP_BUNDLE}" >"${temp_file}"
+	zip -qr - "${APP_BUNDLE}" >"${temp_file}"
 	
 	#upload
+	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
 	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${temp_file}"
 	rm "${temp_file}"
-
-	echo Uploaded...once approved, make sure to staple the notorization to the app with xcrun stapler staple \"${APP_BUNDLE}\"
+	echo -e "...uploaded"
+	printf '%s\n' --------------------
+	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with \033[1mxcrun stapler staple \"${APP_BUNDLE}\"\033[0m 🔏"
+	printf '%s\n' --------------------
 fi
