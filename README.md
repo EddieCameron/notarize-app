@@ -70,7 +70,7 @@ If you plan to distribute your app as a DMG, it must also be notarized. Add the 
 
 ## Example
 ```sh
-app-notarizer --cert "Developer ID Application: My Name (CODECODE)" \
+notarize-app --cert "Developer ID Application: My Name (CODECODE)" \
     --username "bill@billgates.biz" \
     --pwd "1234-abcd-5678-efgh" \
     --provider BillGates12345678 \

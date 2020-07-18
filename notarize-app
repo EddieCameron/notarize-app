@@ -244,7 +244,15 @@ if [[ -n "${MAKE_DMG}" ]]; then
 	args+=( "${DMG_NAME}.dmg" )
 	args+=( "$SRC_FOLDER" )
 
-	${LIB_DIR}/create-dmg/create-dmg "${args[@]}" 
+	if ! command -v create-dmg &> /dev/null
+	then
+		# try to use local version
+		CREATE_DMG=${LIB_DIR}/create-dmg/create-dmg
+	else
+		CREATE_DMG=create-dmg
+	fi
+
+	${CREATE_DMG} "${args[@]}" 
 
 	#sign dmg
 	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
