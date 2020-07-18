@@ -1,4 +1,4 @@
-# app-notarizer
+# notarize-app
 Notarizes OSX apps built outside of Xcode, and optionally packages them into .dmgs for easy distribution.
 
 ## About
@@ -16,14 +16,14 @@ make install
 
 ## How 2 Use
 ```sh
-app-notarizer [options] <folder containing .app, or blank to use current directory>
+notarize-app [options] <folder containing .app, or blank to use current directory>
 ```
 
-By default, app-notarizer looks for a .app in the given folder, signs it, along with any libraries inside it, then notarizes it and uploads to Apple.
+By default, notarize-app looks for a .app in the given folder, signs it, along with any libraries inside it, then notarizes it and uploads to Apple.
 Optionally, it can also package the .app along with any other files in the same folder into a .dmg.
 
 #### Credentials
-app-notarizer needs to be given credentials to your Apple developer account the first time you run it. It stores them in `~/.app-notarizer.conf` so you don't have to keep looking them up. You need to provide these options:
+notarize-app needs to be given credentials to your Apple developer account the first time you run it. It stores them in `~/.notarize-app.conf` so you don't have to keep looking them up. You need to provide these options:
 
 - Developer ID certificate (--cert)
 

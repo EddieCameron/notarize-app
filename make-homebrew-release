@@ -1,5 +1,0 @@
-#!/usr/bin/env bash -x
-
-VERSION="$1"
-TARNAME="notarize-app-homebrew-${1}.tar.gz"
-tar -vczf ${TARNAME} --exclude "./lib" --exclude "./.git" --exclude ${TARNAME} .
