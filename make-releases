@@ -1,4 +1,4 @@
-#!/usr/bin/env bash -x
+#!/usr/bin/env bash
 
 if [ -z "$1" ]; then
     echo "Need version number"
@@ -16,3 +16,7 @@ tar -vczf ${TARNAME} --exclude "./.git" --exclude './releases' .
 # just for homebrew
 TARNAME="releases/notarize-app-homebrew-${1}.tar.gz"
 tar -vczf ${TARNAME} --exclude "./lib" --exclude "./.git" --exclude './releases' .
+
+SHA=$(shasum -a 256 ${TARNAME} | cut -d " " -f 1)
+echo "The SHA sum for the Homebrew release is:"
+echo $SHA
