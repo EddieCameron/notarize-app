@@ -10,7 +10,7 @@ libdir = ${prefix}/lib
 INSTALL = install
 INSTALL_PROGRAM = $(INSTALL)
 
-.PHONY: install uninstall
+.PHONY: install install-homebrew uninstall
 
 install: notarize-app
 	$(INSTALL) -d $(DESTDIR)$(bindir)
@@ -19,6 +19,12 @@ install: notarize-app
 	cp -R support $(DESTDIR)$(datadir)/$(PACKAGE_TARNAME)
 	$(INSTALL) -d $(DESTDIR)$(libdir)/$(PACKAGE_TARNAME)
 	cp -R lib/create-dmg $(DESTDIR)$(libdir)/$(PACKAGE_TARNAME)
+
+install-homebrew:
+	$(INSTALL) -d $(DESTDIR)$(bindir)
+	$(INSTALL_PROGRAM) $(PACKAGE_TARNAME) $(DESTDIR)$(bindir)/$(PACKAGE_TARNAME)
+	$(INSTALL) -d $(DESTDIR)$(datadir)/$(PACKAGE_TARNAME)
+	cp -R support $(DESTDIR)$(datadir)/$(PACKAGE_TARNAME)
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(PACKAGE_TARNAME)

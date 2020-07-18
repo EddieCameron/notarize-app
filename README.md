@@ -121,4 +121,4 @@ If none of these options are set, a DMG will not be made, and only the .app will
 	    display this help screen
 
 ==============
-``
+```
