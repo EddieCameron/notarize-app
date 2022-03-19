@@ -46,6 +46,11 @@ function chc() {
 	printf "\n${2}=${3}"  >> "${1}"
 }
 
+function get_abs_filename() {
+  # $1 : relative filename
+  echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+}
+
 # https://unix.stackexchange.com/a/331965/312709
 # Usage: local myvar="$(config_get myvar)"
 function config_get() {
@@ -80,6 +85,8 @@ Options:
       path to non-default entitlements file
   --replace-mono-lib <path_to_lib_folder>
 		provide a patched mono framework for Unity 5 (replaces MonoEmbedRuntime under .app/Contents/Frameworks)
+  --skip-notarize
+		if you don't want to notarize, just sign and dmg(if set)
 
 == DMG Packaging ==
 If none of these options are set, a DMG will not be made, and only the .app will be signed
@@ -147,6 +154,9 @@ while [[ "${1:0:1}" = "-" ]]; do
 		--replace-mono-lib)
 			REPLACE_MONO_LIB_PATH="$2"
 			shift; shift;;
+		--skip-notarize)
+			SKIP_NOTARIZE=YES
+			shift;;
 		--make-dmg)
 			MAKE_DMG=YES
 			shift;;
@@ -194,13 +204,19 @@ fi
 
 APP_BUNDLE="$(find "${SRC_FOLDER}" -type d -name '*.app' -maxdepth 1)"
 
+if [ -z $APP_BUNDLE ]; then
+	echo "No .app found in directory: "$SRC_FOLDER" Run 'make_osx_build --help' for help."
+	exit 1
+fi
+
 if [ -z ${DMG_NAME+x} ]; then
 	filename=$(basename -- "$APP_BUNDLE")
 	DMG_NAME="${filename%.*}"
 fi
 
-BUNDLE_ID=$(defaults read "$(pwd)/${APP_BUNDLE}/Contents/Info" CFBundleIdentifier)
-echo -e "🔏 Notarizing \033[1m\"${APP_BUNDLE}\": ${BUNDLE_ID}\033[0m"
+PLIST_PATH=$(get_abs_filename "${APP_BUNDLE}/Contents/Info")
+BUNDLE_ID=$(defaults read "${PLIST_PATH}" CFBundleIdentifier)
+echo -e "🔏 Prepping \033[1m\"${APP_BUNDLE}\": ${BUNDLE_ID}\033[0m"
 
 if [[ -n "$REPLACE_MONO_LIB_PATH" ]]; then
 	# replace mono framework
@@ -214,14 +230,12 @@ fi
 xattr -cr "$APP_BUNDLE"
 
 # delete unity's meta files from the plugin bundles before signing
-PLUGINS_PATH="$APP_BUNDLE/Contents/Plugins/"
-if [ -d "${PLUGINS_PATH}" ]; then
-	echo -e "🔏 Deleting Unity3D .meta files and signing native plugins"
-	find "$PLUGINS_PATH" -type f -name '*.meta' -delete
+echo -e "🔏 Deleting Unity3D .meta files and signing native plugins"
+# sign *.bundles
+find "$APP_BUNDLE" -type d -name "*.bundle" -exec find {} -type f -name '*.meta' -delete \; -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" {} \;
 
-	# sign plugins
-	for d in "${PLUGINS_PATH}"*/ ; do (codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" "$d"); done
-fi
+# sign *.dylibs
+find "$APP_BUNDLE" -type f -name "*.dylib" -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" {} \;
 
 #sign app bundle
 echo -e "🔏 Signing .app"
@@ -259,13 +273,7 @@ if [[ -n "${MAKE_DMG}" ]]; then
 	echo -e "🔏 Signing ${DMG_NAME}.dmg"
 	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
 
-	#upload
-	echo -e "🔏 Uploading signed ${DMG_NAME}.dmg to Apple for notarization..."
-	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${DMG_NAME}.dmg"
-	echo -e "...uploaded"
-	printf '%s\n' --------------------
-	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with \033[1mxcrun stapler staple \"${DMG_NAME}.dmg\"\033[0m 🔏"
-	printf '%s\n' --------------------
+	NOTARIZE_FILENAME="${DMG_NAME}.dmg"
 else
 	# create temp zip for uploading
 	echo -e "Zipping .app for upload"
@@ -273,12 +281,16 @@ else
 	touch "${temp_file}"
 	zip -qr - "${APP_BUNDLE}" >"${temp_file}"
 	
-	#upload
+	NOTARIZE_FILENAME="${temp_file}"
+fi
+
+if [[ -z "${SKIP_NOTARIZE}" ]]; then
+#upload
 	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
-	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${temp_file}"
-	rm "${temp_file}"
+	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${NOTARIZE_FILENAME}"
 	echo -e "...uploaded"
 	printf '%s\n' --------------------
-	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with \033[1mxcrun stapler staple \"${APP_BUNDLE}\"\033[0m 🔏"
+	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with:"
+	echo -e "\033[1mxcrun stapler staple \"${APP_BUNDLE}\"\033[0m"
 	printf '%s\n' --------------------
 fi
