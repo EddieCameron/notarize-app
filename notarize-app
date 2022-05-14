@@ -154,6 +154,9 @@ while [[ "${1:0:1}" = "-" ]]; do
 		--replace-mono-lib)
 			REPLACE_MONO_LIB_PATH="$2"
 			shift; shift;;
+		--dont-fix-permissions)
+			DONT_FIX_PERMISSIONS=YES
+			shift;;
 		--skip-notarize)
 			SKIP_NOTARIZE=YES
 			shift;;
@@ -197,7 +200,8 @@ while [[ "${1:0:1}" = "-" ]]; do
 done
 
 if [[ -z "$1" ]]; then
-	SRC_FOLDER="."
+	echo "Please specify input .app or containing folder. Run 'make_osx_build --help' for help."
+	exit 1
 else
 	SRC_FOLDER="$1"
 fi
@@ -224,6 +228,19 @@ if [[ -n "$REPLACE_MONO_LIB_PATH" ]]; then
 	FRAMEWORKS_PATH="$APP_BUNDLE/Contents/Frameworks/MonoEmbedRuntime"
 	rm -rf "$FRAMEWORKS_PATH"
 	cp -R "$REPLACE_MONO_LIB_PATH" "$FRAMEWORKS_PATH"
+fi
+
+if [[ -z "${DONT_FIX_PERMISSIONS}" ]]; then
+	# make sure main executable is...executable by all users
+	# (Unity windows sometimes generates .apps with incorrect permissions)
+	if [[ -r "$APP_BUNDLE/Contents/Info.plist" ]]; then
+		# Extract the CFBundleExecutable key that contains the name of the executable and print it to standard output
+		ABSOLUTE_APP_BUNDLE="$(cd "$(dirname "$APP_BUNDLE")" && pwd)/$(basename "$APP_BUNDLE")"
+		EXECUTABLE_PATH="$APP_BUNDLE/Contents/MacOS/$(defaults read "$ABSOLUTE_APP_BUNDLE/Contents/Info" CFBundleExecutable)";
+		echo -e "🔏 Fixing executable permissions on ${EXECUTABLE_PATH}"
+		chmod +x "$ABSOLUTE_APP_BUNDLE/Contents/Info.plist"
+		chmod +x "$EXECUTABLE_PATH"
+	fi
 fi
 
 # Remove any weird finder metadata that crept in
@@ -291,6 +308,6 @@ if [[ -z "${SKIP_NOTARIZE}" ]]; then
 	echo -e "...uploaded"
 	printf '%s\n' --------------------
 	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with:"
-	echo -e "\033[1mxcrun stapler staple \"${APP_BUNDLE}\"\033[0m"
+	echo -e "\033[1mxcrun stapler staple \"${NOTARIZE_FILENAME}\"\033[0m"
 	printf '%s\n' --------------------
 fi
