@@ -83,10 +83,15 @@ Options:
 == Notarization Options ==
   --entitlements <file.entitlements>
       path to non-default entitlements file
+  --dont-fix-permissions
+		unless set, the main executable and Info.plist will have their global execution flags set. 
+		Unity (and some online distribution platforms eg: itch.io) will sometimes not set this properly
   --replace-mono-lib <path_to_lib_folder>
 		provide a patched mono framework for Unity 5 (replaces MonoEmbedRuntime under .app/Contents/Frameworks)
   --skip-notarize
-		if you don't want to notarize, just sign and dmg(if set)
+		if you don't want to notarize, just sign and package
+  --skip-wait-for-notarization
+		by default this program will wait for notarization to complete with apple before proceeding. set this if you want to wait for that and staple the output yourself
 
 == DMG Packaging ==
 If none of these options are set, a DMG will not be made, and only the .app will be signed
@@ -159,6 +164,9 @@ while [[ "${1:0:1}" = "-" ]]; do
 			shift;;
 		--skip-notarize)
 			SKIP_NOTARIZE=YES
+			shift;;
+		--skip-wait-for-notarization)
+			SKIP_WAIT_FOR_NOTARIZATION=YES
 			shift;;
 		--make-dmg)
 			MAKE_DMG=YES
@@ -291,6 +299,7 @@ if [[ -n "${MAKE_DMG}" ]]; then
 	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
 
 	NOTARIZE_FILENAME="${DMG_NAME}.dmg"
+	FILE_TO_STAPLE=${NOTARIZE_FILENAME}
 else
 	# create temp zip for uploading
 	echo -e "Zipping .app for upload"
@@ -299,15 +308,58 @@ else
 	zip -qr - "${APP_BUNDLE}" >"${temp_file}"
 	
 	NOTARIZE_FILENAME="${temp_file}"
+	FILE_TO_STAPLE=${APP_BUNDLE}
 fi
 
 if [[ -z "${SKIP_NOTARIZE}" ]]; then
-#upload
+	#upload
 	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
-	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${NOTARIZE_FILENAME}"
+	UPLOAD_INFO_PLIST="uploadinfo.plist"
+	REQUEST_INFO_PLIST="requestinfo.plist"
+	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${NOTARIZE_FILENAME}" --output-format xml > "${UPLOAD_INFO_PLIST}"
 	echo -e "...uploaded"
 	printf '%s\n' --------------------
-	echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with:"
-	echo -e "\033[1mxcrun stapler staple \"${NOTARIZE_FILENAME}\"\033[0m"
+
+	if [[ -z "${SKIP_WAIT_FOR_NOTARIZATION}" ]]; then
+		echo -e "🔏 Waiting for notarization to complete..."
+		
+		spin='-\|/'
+		i=0
+
+		while true; do
+			printf "\r Checking notarization progress with Apple..."
+			xcrun altool --notarization-info `/usr/libexec/PlistBuddy -c "Print :notarization-upload:RequestUUID" ${UPLOAD_INFO_PLIST}` -u "${APPLE_USERNAME}" -p "${APPLE_PWD}" --asc-provider "${APPLE_PROVIDER_SHORTNAME}"  --output-format xml > "${REQUEST_INFO_PLIST}"
+			if [[ `/usr/libexec/PlistBuddy -c "Print :notarization-info:Status" ${REQUEST_INFO_PLIST}` != "in progress" ]]; then
+				break;
+			fi
+			printf "\33[2K\r"
+
+			#wait 60 seconds and show progress
+			waitTime=0
+			while [ $waitTime -lt 60000 ] 
+			do
+				i=$(( (i+1) %4 ))
+				printf "\rwaiting...${spin:$i:1}"
+				sleep 0.1
+				waitTime=$[$waitTime + 100]
+			done
+		done
+
+		if [[ `/usr/libexec/PlistBuddy -c "Print :notarization-info:Status" ${REQUEST_INFO_PLIST}` != "success" ]]; then \
+			echo -e "❌ Notarization failed. See ${REQUEST_INFO_PLIST} for details"
+			exit 1
+		fi
+
+		printf "\r Notarized!"
+		printf '%s\n' --------------------
+		echo -e "🔏 Stapling app package: ${FILE_TO_STAPLE}"
+		xcrun stapler staple "${FILE_TO_STAPLE}"
+	else
+		echo -e "🔏 App is now being notarized with Apple. This can take from a few minutes to a few hours."
+		echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with:"
+		echo -e "\033[1mxcrun stapler staple \"${FILE_TO_STAPLE}\"\033[0m"
+	fi
+
 	printf '%s\n' --------------------
+	echo -e "🔏 Done! ${FILE_TO_STAPLE} is ready to distribute."
 fi
