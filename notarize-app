@@ -1,6 +1,7 @@
 #!/usr/bin/env bash -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+NOTARY_TOOL_KEYCHAIN_PROFILE="NOTARIZE_APP_CREDENTIALS"
 
 sentinel_file="$SCRIPT_DIR/.this-is-the-repo"
 if [[ -f "$sentinel_file" ]]; then
@@ -70,16 +71,6 @@ Creates, signs, and notarizes a .app into a DMG
 Usage:  $(basename $0) [options] <src folder to make into dmg (containing .app & any other files)>
 
 Options:
-== Apple Notarization Credientials ==
-  --cert <certificate name>
-      name of Developer ID certificate eg: "Developer ID Application: My Name (CODECODE)"  (required)
-  --username <username>
-      username on apple developer account (email)  (required)
-  --pwd <pwd>
-      one-time password generated from appleid site (xxxx-yyyy-zzzz)  (required)
-  --provider <provider_shortname>
-       the provider short-name on your apple account. Often, but not always, the same as your team id  (required)
-
 == Notarization Options ==
   --entitlements <file.entitlements>
       path to non-default entitlements file
@@ -118,11 +109,6 @@ EOHELP
 }
 
 # defaults
-DEVELOPER_ID="$(config_get DEVELOPER_ID)"
-APPLE_USERNAME="$(config_get APPLE_USERNAME)"
-APPLE_PWD="$(config_get APPLE_PWD)"
-APPLE_PROVIDER_SHORTNAME="$(config_get APPLE_PROVIDER_SHORTNAME)"
-
 DMG_SIZE_X="$(config_get DMG_SIZE_X)"
 DMG_SIZE_Y="$(config_get DMG_SIZE_Y)"
 DMG_ICON_X="$(config_get DMG_ICON_X)"
@@ -137,22 +123,6 @@ DMG_BACKGROUND_IMG="${SUPPORT_DIR}/dmg_background_template.png"
 # Argument parsing
 while [[ "${1:0:1}" = "-" ]]; do
 	case $1 in
-		--cert)
-			DEVELOPER_ID="$2"
-			config_set DEVELOPER_ID ${DEVELOPER_ID}
-			shift; shift;;
-		--username)
-			APPLE_USERNAME="$2"
-			config_set APPLE_USERNAME ${APPLE_USERNAME}
-			shift; shift;;
-		--pwd)
-			APPLE_PWD="$2"
-			config_set APPLE_PWD ${APPLE_PWD}
-			shift; shift;;
-		--provider)
-			APPLE_PROVIDER_SHORTNAME="$2"
-			config_set APPLE_PROVIDER_SHORTNAME ${APPLE_PROVIDER_SHORTNAME}
-			shift; shift;;
 		--entitlements)
 			ENTITLEMENTS_FILE="$2"
 			shift; shift;;
@@ -256,15 +226,37 @@ xattr -cr "$APP_BUNDLE"
 
 # delete unity's meta files from the plugin bundles before signing
 echo -e "🔏 Deleting Unity3D .meta files and signing native plugins"
+
+# find team id and make sure credentials are set
+NUM_IDENTITIES=$(security find-identity -p basic -v | grep "Developer ID Application" -c)
+if [[ NUM_IDENTITIES -eq 0 ]]; then
+	echo -e "❌ No valid code signing identities found. Download and install your Developer ID Application certificate from Apple"
+	exit 1
+elif [[ NUM_IDENTITIES -eq 2 ]]; then
+	echo -e "Multiple Developer ID Identities found. Which team do you want to sign with?"
+	IDENTITY_OPTIONS=$(security find-identity -p basic -v | grep -o "Developer ID Application.*)")
+	select id in $IDENTITY_OPTIONS; do
+		case $id in
+			exit) 	echo "You must choose a team"
+					exit ;;
+			*)		echo ${REPLY}\) $id
+					SIGNING_IDENTITY=$id
+					break;;
+		esac
+	done
+else
+	SIGNING_IDENTITY=$(security find-identity -p basic -v | grep -o "Developer ID Application.*)")
+fi
+
 # sign *.bundles
-find "$APP_BUNDLE" -type d -name "*.bundle" -exec find {} -type f -name '*.meta' -delete \; -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" {} \;
+find "$APP_BUNDLE" -type d -name "*.bundle" -exec find {} -type f -name '*.meta' -delete \; -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$SIGNING_IDENTITY" {} \;
 
 # sign *.dylibs
-find "$APP_BUNDLE" -type f -name "*.dylib" -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" {} \;
+find "$APP_BUNDLE" -type f -name "*.dylib" -exec codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$SIGNING_IDENTITY" {} \;
 
 #sign app bundle
 echo -e "🔏 Signing .app"
-codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$DEVELOPER_ID" "$APP_BUNDLE"
+codesign --deep --force --verify --verbose --timestamp --options runtime --entitlements "$ENTITLEMENTS_FILE" --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
 
 if [[ -n "${MAKE_DMG}" ]]; then
 	# Create the DMG
@@ -296,7 +288,7 @@ if [[ -n "${MAKE_DMG}" ]]; then
 
 	#sign dmg
 	echo -e "🔏 Signing ${DMG_NAME}.dmg"
-	codesign -s "$DEVELOPER_ID" "${DMG_NAME}.dmg" --options runtime
+	codesign -s "$SIGNING_IDENTITY" "${DMG_NAME}.dmg" --options runtime
 
 	NOTARIZE_FILENAME="${DMG_NAME}.dmg"
 	FILE_TO_STAPLE=${NOTARIZE_FILENAME}
@@ -312,41 +304,37 @@ else
 fi
 
 if [[ -z "${SKIP_NOTARIZE}" ]]; then
+
+	# verify credentials
+	KEYCHAIN_PATH=$(security default-keychain | xargs)
+	security find-generic-password -l com.apple.gke.notary.tool || xcrun notarytool store-credentials "$NOTARY_TOOL_KEYCHAIN_PROFILE" --keychain "$KEYCHAIN_PATH"
+
 	#upload
 	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
-	UPLOAD_INFO_PLIST="uploadinfo.plist"
-	REQUEST_INFO_PLIST="requestinfo.plist"
-	xcrun altool --notarize-app --username "$APPLE_USERNAME" --password $APPLE_PWD --asc-provider $APPLE_PROVIDER_SHORTNAME --primary-bundle-id $BUNDLE_ID --file "${NOTARIZE_FILENAME}" --output-format xml > "${UPLOAD_INFO_PLIST}"
+
+	SUBMISSION_ID=$(xcrun notarytool submit "${NOTARIZE_FILENAME}"\
+		--keychain-profile "${NOTARY_TOOL_KEYCHAIN_PROFILE}"\
+		--keychain "${KEYCHAIN_PATH}"\
+		| sed -n -e 's/^.*id: //p' | head -1)
+
 	echo -e "...uploaded"
 	printf '%s\n' --------------------
 
 	if [[ -z "${SKIP_WAIT_FOR_NOTARIZATION}" ]]; then
 		echo -e "🔏 Waiting for notarization to complete..."
-		
-		spin='-\|/'
-		i=0
 
-		while true; do
-			printf "\r Checking notarization progress with Apple..."
-			xcrun altool --notarization-info `/usr/libexec/PlistBuddy -c "Print :notarization-upload:RequestUUID" ${UPLOAD_INFO_PLIST}` -u "${APPLE_USERNAME}" -p "${APPLE_PWD}" --asc-provider "${APPLE_PROVIDER_SHORTNAME}"  --output-format xml > "${REQUEST_INFO_PLIST}"
-			if [[ `/usr/libexec/PlistBuddy -c "Print :notarization-info:Status" ${REQUEST_INFO_PLIST}` != "in progress" ]]; then
-				break;
-			fi
-			printf "\33[2K\r"
+		STATUS=$(xcrun notarytool wait "$SUBMISSION_ID"\
+			--keychain-profile "$NOTARY_TOOL_KEYCHAIN_PROFILE"\
+			--keychain "$KEYCHAIN_PATH" | grep "status")
 
-			#wait 60 seconds and show progress
-			waitTime=0
-			while [ $waitTime -lt 60000 ] 
-			do
-				i=$(( (i+1) %4 ))
-				printf "\rwaiting...${spin:$i:1}"
-				sleep 0.1
-				waitTime=$[$waitTime + 100]
-			done
-		done
+		if [[ $string != *"Accepted"* ]]; then
+			echo "NOTARIZATION REJECTED. SEE LOG AT notary_log.json"
 
-		if [[ `/usr/libexec/PlistBuddy -c "Print :notarization-info:Status" ${REQUEST_INFO_PLIST}` != "success" ]]; then \
-			echo -e "❌ Notarization failed. See ${REQUEST_INFO_PLIST} for details"
+			xcrun notarytool log "$SUBMISSION_ID"\
+				--keychain-profile "$NOTARY_TOOL_KEYCHAIN_PROFILE"\
+				--keychain "$KEYCHAIN_PATH"\
+				notary_log.json
+			
 			exit 1
 		fi
 
