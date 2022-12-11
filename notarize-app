@@ -71,6 +71,9 @@ Creates, signs, and notarizes a .app into a DMG
 Usage:  $(basename $0) [options] <src folder to make into dmg (containing .app & any other files)>
 
 Options:
+== Credentials ==
+  --reset-credentials
+		If set, will ignore any saved credentials in the keychain, and re-prompt you for them
 == Notarization Options ==
   --entitlements <file.entitlements>
       path to non-default entitlements file
@@ -123,6 +126,9 @@ DMG_BACKGROUND_IMG="${SUPPORT_DIR}/dmg_background_template.png"
 # Argument parsing
 while [[ "${1:0:1}" = "-" ]]; do
 	case $1 in
+		--reset-credentials)
+			RESET_CREDENTIALS=YES
+			shift;;
 		--entitlements)
 			ENTITLEMENTS_FILE="$2"
 			shift; shift;;
@@ -305,9 +311,9 @@ fi
 
 if [[ -z "${SKIP_NOTARIZE}" ]]; then
 
-	# verify credentials
+	# verify credentials if missing or forced
 	KEYCHAIN_PATH=$(security default-keychain | xargs)
-	security find-generic-password -l com.apple.gke.notary.tool > /dev/null || xcrun notarytool store-credentials "$NOTARY_TOOL_KEYCHAIN_PROFILE" --keychain "$KEYCHAIN_PATH"
+	test -z $RESET_CREDENTIALS && security find-generic-password -l com.apple.gke.notary.tool > /dev/null || xcrun notarytool store-credentials "$NOTARY_TOOL_KEYCHAIN_PROFILE" --keychain "$KEYCHAIN_PATH"
 
 	#upload
 	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
