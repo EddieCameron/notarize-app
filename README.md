@@ -14,7 +14,7 @@ If you run into trouble, read that guide (and maybe the comments) in detail, a l
 ```sh
 brew install eddiecameron/things/notarize-app
 ```
-
+OR
 - Download or clone repo, then run:
 ```sh
 make install
@@ -22,7 +22,7 @@ make install
 
 ## How 2 Use
 ```sh
-notarize-app [options] <folder containing .app, or blank to use current directory>
+notarize-app [options] <folder containing .app, or . to use current directory>
 *** wait up to several hours for Apple ***
 ```
 **NOTE:** By default this tool will wait for successful notarization and then "staple" the notarization to the .app/.dmg. If you choose to skip the waiting step (*--skip-wait-for-notarization*), you need to wait for the approval email from Apple, which can take up to an hour, then run `xcrun stapler staple "test.app/test.dmg"` (Instructions are given after a successful notarization submission)
@@ -31,26 +31,10 @@ By default, notarize-app looks for a .app in the given folder, signs it, along w
 Optionally, it can also package the .app along with any other files in the same folder into a .dmg.
 
 #### Credentials
-notarize-app needs to be given credentials to your Apple developer account the first time you run it. It stores them in `~/.notarize-app.conf` so you don't have to keep looking them up. You need to provide these options:
+You need a valid Developer ID Application Certificate installed on your machine, this can be generated and downloaded using the Apple developer portal.
+On the first run, notarize-app will look for a valid installed Developer ID and use that to sign the app. If multiple are found it will ask you which to use.
 
-- Developer ID certificate (--cert)
-
-This is what the build is code signed against. Make sure you have a "Developer ID Certificate" on your developer account, and install it to your mac. You need its full name, which can be found in Keychain Access under certificates, eg: "Developer ID Application: YourName (xxxxxxxxx)"
-
-- Password (--pwd)
-
-You need to generate an app specific password for the tool to get access to your developer account. Create at https://appleid.apple.com under 'Security'. 
-
-- Username (--username)
-
-Your Apple ID
-
-- Provider shortname (--provider)
-
-This is generally your apple team id, but if that doesn't work, you'll need your 'Provider Short Name', which can be found by running
-```sh
-xcrun iTMSTransporter -m provider -u YourAppleIDUsername -p apps-peci-ficp-word
-```
+If notarizing, it will also ask for your Apple ID credentials and save them to the keychain. You can use a private key or your AppleID + an App Specific Password. It will validate these credentials the first time you provide them, but if they become invalidated later (e.g: you reset the password), you can reset them with the `--reset-credentials` flag
 
 #### Notarization Options
 - Entitlements (--entitlements)
@@ -78,10 +62,7 @@ If you plan to distribute your app as a DMG, it must also be notarized. Add the 
 
 ## Example
 ```sh
-notarize-app --cert "Developer ID Application: My Name (CODECODE)" \
-    --username "bill@billgates.biz" \
-    --pwd "1234-abcd-5678-efgh" \
-    --provider BillGates12345678 \
+notarize-app \
     --entitlements "~/MyApp/MyFancyEntitlements.entitlements" \
     --background "VeryGoodBackground.png" \
     --dmg-name "MyApp" \
@@ -95,14 +76,8 @@ Usage:  notarize-app [options] <src folder to make into dmg (containing .app & a
 
 Options:
 == Apple Notarization Credientials ==
-  --cert <certificate name>
-      name of Developer ID certificate eg: "Developer ID Application: My Name (CODECODE)"  (required)
-  --username <username>
-      username on apple developer account (email)  (required)
-  --pwd <pwd>
-      one-time password generated from appleid site (xxxx-yyyy-zzzz)  (required)
-  --provider <provider_shortname>
-       the provider short-name on your apple account. Often, but not always, the same as your team id  (required)
+  --reset-credentials
+    forces any saved credentials to be ignored. Will re-prompt you for valid Apple ID credentials
 
 == Notarization Options ==
   --entitlements <file.entitlements>
