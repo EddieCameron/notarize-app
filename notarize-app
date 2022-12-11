@@ -307,7 +307,7 @@ if [[ -z "${SKIP_NOTARIZE}" ]]; then
 
 	# verify credentials
 	KEYCHAIN_PATH=$(security default-keychain | xargs)
-	security find-generic-password -l com.apple.gke.notary.tool || xcrun notarytool store-credentials "$NOTARY_TOOL_KEYCHAIN_PROFILE" --keychain "$KEYCHAIN_PATH"
+	security find-generic-password -l com.apple.gke.notary.tool > /dev/null || xcrun notarytool store-credentials "$NOTARY_TOOL_KEYCHAIN_PROFILE" --keychain "$KEYCHAIN_PATH"
 
 	#upload
 	echo -e "🔏 Uploading signed and compressed .app to Apple for notarization..."
@@ -326,8 +326,13 @@ if [[ -z "${SKIP_NOTARIZE}" ]]; then
 		STATUS=$(xcrun notarytool wait "$SUBMISSION_ID"\
 			--keychain-profile "$NOTARY_TOOL_KEYCHAIN_PROFILE"\
 			--keychain "$KEYCHAIN_PATH" | grep "status")
-
-		if [[ $string != *"Accepted"* ]]; then
+		echo $STATUS
+		if [[ $STATUS =~ Accepted ]]; then
+			printf "\r Notarized!"
+			printf '%s\n' --------------------
+			echo -e "🔏 Stapling app package: ${FILE_TO_STAPLE}"
+			xcrun stapler staple "${FILE_TO_STAPLE}"
+		else
 			echo "NOTARIZATION REJECTED. SEE LOG AT notary_log.json"
 
 			xcrun notarytool log "$SUBMISSION_ID"\
@@ -337,11 +342,6 @@ if [[ -z "${SKIP_NOTARIZE}" ]]; then
 			
 			exit 1
 		fi
-
-		printf "\r Notarized!"
-		printf '%s\n' --------------------
-		echo -e "🔏 Stapling app package: ${FILE_TO_STAPLE}"
-		xcrun stapler staple "${FILE_TO_STAPLE}"
 	else
 		echo -e "🔏 App is now being notarized with Apple. This can take from a few minutes to a few hours."
 		echo -e "🔏 IMPORTANT! Once approved, make sure to staple the notorization to the app with:"
